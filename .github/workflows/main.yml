@@ -1,0 +1,56 @@
+name: VPN Gate Sync
+
+on:
+  schedule:
+    - cron: '0 */2 * * *'        # 每 2 小时触发（UTC）
+  workflow_dispatch:
+    inputs:
+      total_requests:
+        description: "Number of VPN Gate API requests to make"
+        required: false
+        default: "60"
+
+      worker_count:
+        description: "Concurrent workers"
+        required: false
+        default: "10"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: vpngate-sync
+  cancel-in-progress: false
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v5
+
+      - name: Set up Python
+        uses: actions/setup-python@v6
+        with:
+          python-version: "3.11"
+
+      - name: Fetch VPN Gate servers and build mihomo config
+        env:
+          TOTAL_REQUESTS: ${{ github.event.inputs.total_requests || '60' }}
+          WORKER_COUNT: ${{ github.event.inputs.worker_count || '10' }}
+        run: python3 vpngate_sync.py
+
+      - name: Commit and push
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+
+          git add ovpn mihomo_openvpn.yaml mihomo_openvpn_kr.yaml
+
+          if git diff --cached --quiet; then
+            echo "No changes to commit"
+          else
+            git commit -m "chore: sync VPN Gate servers ($(date -u +%Y-%m-%dT%H:%M:%SZ))"
+            git push
+          fi
